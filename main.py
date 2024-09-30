@@ -64,7 +64,8 @@ class ForexTradingStrategy:
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
-        self.data['capital'] = pd.Series([initial_capital] * len(self.data), dtype=float)
+        self.data['capital'] = initial_capital
+        self.data['daily_returns'] = 0.0
         
         for i in range(1, len(self.data)):
             current_price = self.data['Close'].iloc[i]
@@ -102,14 +103,14 @@ class ForexTradingStrategy:
             for trade in self.open_trades:
                 if (trade['position'] == 1 and current_price <= trade['stop_loss']) or \
                    (trade['position'] == -1 and current_price >= trade['stop_loss']):
-                    pnl = trade['position_size'] * (trade['stop_loss'] - trade['entry_price']) / trade['entry_price'] * self.data['capital'].iloc[i-1]
+                    pnl = trade['position'] * (current_price - trade['entry_price']) * trade['position_size']
                     self.data.loc[self.data.index[i], 'capital'] += pnl
                     self.trades.append({
                         'entry_time': trade['entry_time'],
                         'exit_time': self.data.index[i],
                         'position': trade['position'],
                         'entry_price': trade['entry_price'],
-                        'exit_price': trade['stop_loss'],
+                        'exit_price': current_price,
                         'pnl': pnl,
                         'exit_reason': 'Stop Loss'
                     })
@@ -117,14 +118,14 @@ class ForexTradingStrategy:
                 
                 elif (trade['position'] == 1 and current_price >= trade['take_profit']) or \
                      (trade['position'] == -1 and current_price <= trade['take_profit']):
-                    pnl = trade['position_size'] * (trade['take_profit'] - trade['entry_price']) / trade['entry_price'] * self.data['capital'].iloc[i-1]
+                    pnl = trade['position'] * (current_price - trade['entry_price']) * trade['position_size']
                     self.data.loc[self.data.index[i], 'capital'] += pnl
                     self.trades.append({
                         'entry_time': trade['entry_time'],
                         'exit_time': self.data.index[i],
                         'position': trade['position'],
                         'entry_price': trade['entry_price'],
-                        'exit_price': trade['take_profit'],
+                        'exit_price': current_price,
                         'pnl': pnl,
                         'exit_reason': 'Take Profit'
                     })
@@ -133,12 +134,16 @@ class ForexTradingStrategy:
             # Remove closed trades from open trades list
             self.open_trades = [trade for trade in self.open_trades if trade not in closed_trades]
             
+            # Update capital if no change
             if self.data['capital'].iloc[i] == self.data['capital'].iloc[i-1]:
                 self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1]
+            
+            # Calculate daily returns
+            self.data.loc[self.data.index[i], 'daily_returns'] = (self.data['capital'].iloc[i] - self.data['capital'].iloc[i-1]) / self.data['capital'].iloc[i-1]
 
         # Calculate performance metrics
         total_return = (self.data['capital'].iloc[-1] - initial_capital) / initial_capital
-        daily_returns = self.data['capital'].diff().resample('D').last().dropna()
+        daily_returns = self.data['daily_returns'].dropna()
         
         if len(daily_returns) > 1 and daily_returns.std() != 0:
             sharpe_ratio = np.sqrt(252) * daily_returns.mean() / daily_returns.std()
