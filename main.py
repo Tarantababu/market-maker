@@ -65,7 +65,6 @@ class ForexTradingStrategy:
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
         self.data['capital'] = initial_capital
-        self.data['daily_returns'] = 0.0
         
         for i in range(1, len(self.data)):
             current_price = self.data['Close'].iloc[i]
@@ -134,21 +133,21 @@ class ForexTradingStrategy:
             # Remove closed trades from open trades list
             self.open_trades = [trade for trade in self.open_trades if trade not in closed_trades]
             
-            # Update capital if no change
-            if self.data['capital'].iloc[i] == self.data['capital'].iloc[i-1]:
+            # Ensure capital is updated even if no trades are closed
+            if i > 0 and self.data['capital'].iloc[i] == self.data['capital'].iloc[0]:
                 self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1]
-            
-            # Calculate daily returns
-            self.data.loc[self.data.index[i], 'daily_returns'] = (self.data['capital'].iloc[i] - self.data['capital'].iloc[i-1]) / self.data['capital'].iloc[i-1]
+
+        # Calculate daily returns
+        self.data['daily_returns'] = self.data['capital'].pct_change().fillna(0)
 
     def calculate_metrics(self, initial_capital):
         total_return = (self.data['capital'].iloc[-1] - initial_capital) / initial_capital
-        daily_returns = self.data['daily_returns'].dropna()
+        daily_returns = self.data['daily_returns']
         
         if len(daily_returns) > 1 and daily_returns.std() != 0:
             sharpe_ratio = np.sqrt(252) * daily_returns.mean() / daily_returns.std()
         else:
-            sharpe_ratio = np.nan
+            sharpe_ratio = 0
         
         max_drawdown = (self.data['capital'].cummax() - self.data['capital']) / self.data['capital'].cummax()
         
@@ -219,7 +218,7 @@ symbol = st.sidebar.text_input('Forex Symbol', value='EURUSD=X')
 start_date = st.sidebar.date_input('Start Date', datetime.now() - timedelta(days=30))
 end_date = st.sidebar.date_input('End Date', datetime.now())
 initial_capital = st.sidebar.number_input('Initial Capital', value=10000)
-risk_per_trade = st.sidebar.slider('Risk per Trade', 0.01, 0.05, 0.01, 0.01)
+risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100  # Convert to decimal
 max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
 
 if st.sidebar.button('Run Backtest'):
