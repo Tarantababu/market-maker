@@ -7,7 +7,61 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 class ForexTradingStrategy:
-    # ... [All the previous methods remain the same up to the backtest method] ...
+    def __init__(self, symbol, start_date, end_date):
+        self.symbol = symbol
+        self.start_date = start_date
+        self.end_date = end_date
+        self.data = self.fetch_data()
+        self.trades = []
+        self.open_trades = []
+
+    def fetch_data(self):
+        try:
+            data = yf.download(self.symbol, start=self.start_date, end=self.end_date, interval="15m")
+            if data.empty:
+                st.error(f"No data available for {self.symbol} between {self.start_date} and {self.end_date}")
+                return None
+            return data
+        except Exception as e:
+            st.error(f"Error fetching data: {e}")
+            return None
+
+    def identify_liquidity_pools(self, window=10):
+        self.data['high_pool'] = self.data['High'].rolling(window=window).max()
+        self.data['low_pool'] = self.data['Low'].rolling(window=window).min()
+
+    def detect_displacement(self, threshold=0.0005):
+        self.data['displacement'] = (self.data['Close'] - self.data['Close'].shift(1)) / self.data['Close'].shift(1)
+        self.data['displacement_signal'] = np.where(abs(self.data['displacement']) > threshold, 1, 0)
+
+    def fibonacci_retracement(self, start, end):
+        diff = end - start
+        return [end - level * diff for level in [0.236, 0.382, 0.5, 0.618, 0.786]]
+
+    def identify_fair_value_gaps(self, threshold=0.0005):
+        self.data['gap'] = self.data['Open'] - self.data['Close'].shift(1)
+        self.data['fvg'] = np.where(abs(self.data['gap']) > threshold * self.data['Close'].shift(1), 1, 0)
+
+    def generate_signals(self):
+        self.data['signal'] = 0
+        self.data['entry_price'] = np.nan
+        self.data['target'] = np.nan
+        
+        for i in range(1, len(self.data) - 1):
+            if self.data['displacement_signal'].iloc[i] == 1:
+                start_price = self.data['Close'].iloc[i-1]
+                end_price = self.data['Close'].iloc[i]
+                fib_levels = self.fibonacci_retracement(start_price, end_price)
+                
+                if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
+                    if end_price > start_price:
+                        self.data.loc[self.data.index[i+1], 'signal'] = 1
+                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                        self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
+                    else:
+                        self.data.loc[self.data.index[i+1], 'signal'] = -1
+                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                        self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
         self.data['capital'] = pd.Series([initial_capital] * len(self.data), dtype=float)
@@ -101,6 +155,8 @@ class ForexTradingStrategy:
         }
 
     def run_strategy(self):
+        if self.data is None:
+            return None
         self.identify_liquidity_pools()
         self.detect_displacement()
         self.identify_fair_value_gaps()
@@ -128,7 +184,7 @@ class ForexTradingStrategy:
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=2, col=1)
 
         # If a trade is selected, highlight it on the chart
-        if selected_trade:
+        if selected_trade is not None:
             fig.add_shape(type="rect",
                 x0=selected_trade['entry_time'], y0=0, x1=selected_trade['exit_time'], y1=1,
                 xref="x", yref="paper",
@@ -161,26 +217,35 @@ risk_per_trade = st.sidebar.slider('Risk per Trade', 0.01, 0.05, 0.01, 0.01)
 max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
 
 if st.sidebar.button('Run Backtest'):
-    strategy = ForexTradingStrategy(symbol, start_date, end_date)
-    results = strategy.run_strategy()
+    with st.spinner('Running backtest...'):
+        try:
+            strategy = ForexTradingStrategy(symbol, start_date, end_date)
+            results = strategy.run_strategy()
+            
+            if results is not None:
+                st.header('Backtest Results')
+                for key, value in results.items():
+                    st.metric(key, f"{value:.4f}")
 
-    st.header('Backtest Results')
-    for key, value in results.items():
-        st.metric(key, f"{value:.4f}")
+                st.header('Trade Details')
+                trade_df = pd.DataFrame(strategy.trades)
+                if not trade_df.empty:
+                    st.dataframe(trade_df)
 
-    st.header('Trade Details')
-    trade_df = pd.DataFrame(strategy.trades)
-    st.dataframe(trade_df)
+                    st.header('Strategy Performance')
+                    selected_trade = None
+                    selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
+                                                        format_func=lambda x: f"Trade {x+1}")
+                    selected_trade = trade_df.iloc[selected_trade_index]
 
-    st.header('Strategy Performance')
-    selected_trade = None
-    if not trade_df.empty:
-        selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
-                                            format_func=lambda x: f"Trade {x+1}")
-        selected_trade = trade_df.iloc[selected_trade_index]
-
-    fig = strategy.plot_results(selected_trade)
-    st.plotly_chart(fig, use_container_width=True)
+                    fig = strategy.plot_results(selected_trade)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No trades were executed during the backtest period.")
+            else:
+                st.error("Backtest failed. Please check your inputs and try again.")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
 
 st.sidebar.markdown('---')
 st.sidebar.write('Developed by Your Name')
