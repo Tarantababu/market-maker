@@ -141,7 +141,7 @@ class ForexTradingStrategy:
             # Calculate daily returns
             self.data.loc[self.data.index[i], 'daily_returns'] = (self.data['capital'].iloc[i] - self.data['capital'].iloc[i-1]) / self.data['capital'].iloc[i-1]
 
-        # Calculate performance metrics
+    def calculate_metrics(self, initial_capital):
         total_return = (self.data['capital'].iloc[-1] - initial_capital) / initial_capital
         daily_returns = self.data['daily_returns'].dropna()
         
@@ -159,14 +159,15 @@ class ForexTradingStrategy:
             'Final Capital': self.data['capital'].iloc[-1]
         }
 
-    def run_strategy(self):
+    def run_strategy(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
         if self.data is None:
             return None
         self.identify_liquidity_pools()
         self.detect_displacement()
         self.identify_fair_value_gaps()
         self.generate_signals()
-        return self.backtest()
+        self.backtest(initial_capital, risk_per_trade, max_open_trades)
+        return self.calculate_metrics(initial_capital)
 
     def plot_results(self, selected_trade=None):
         fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
@@ -225,7 +226,7 @@ if st.sidebar.button('Run Backtest'):
     with st.spinner('Running backtest...'):
         try:
             strategy = ForexTradingStrategy(symbol, start_date, end_date)
-            results = strategy.run_strategy()
+            results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades)
             
             if results is not None:
                 st.header('Backtest Results')
@@ -238,7 +239,6 @@ if st.sidebar.button('Run Backtest'):
                     st.dataframe(trade_df)
 
                     st.header('Strategy Performance')
-                    selected_trade = None
                     selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
                                                         format_func=lambda x: f"Trade {x+1}")
                     selected_trade = trade_df.iloc[selected_trade_index]
