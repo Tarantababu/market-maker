@@ -63,7 +63,7 @@ class ForexTradingStrategy:
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
 
-    def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
+    def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
         
         for i in range(1, len(self.data)):
@@ -77,16 +77,14 @@ class ForexTradingStrategy:
                 # Calculate ATR for dynamic stop loss and take profit
                 atr = self.data['High'].iloc[i-20:i].max() - self.data['Low'].iloc[i-20:i].min()
                 
-                # Set stop loss at 1 ATR
+                # Set stop loss and take profit based on risk_reward_ratio
                 stop_loss_price = entry_price - position * atr
+                take_profit_price = entry_price + position * atr * risk_reward_ratio
                 
-                # Set take profit at 2 ATR (1:2 risk-reward ratio)
-                take_profit_price = entry_price + position * 2 * atr
-                
-                # Calculate position size based on risk per trade
+                # Calculate position size based on risk per trade and leverage
                 risk_amount = risk_per_trade * self.data['capital'].iloc[i-1]
                 pip_value = 0.0001 if 'JPY' not in self.symbol else 0.01
-                position_size = risk_amount / (atr / pip_value)
+                position_size = (risk_amount / (atr / pip_value)) * leverage
                 
                 self.open_trades.append({
                     'entry_time': self.data.index[i],
@@ -158,14 +156,14 @@ class ForexTradingStrategy:
             'Final Capital': self.data['capital'].iloc[-1]
         }
 
-    def run_strategy(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5):
+    def run_strategy(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         if self.data is None:
             return None
         self.identify_liquidity_pools()
         self.detect_displacement()
         self.identify_fair_value_gaps()
         self.generate_signals()
-        self.backtest(initial_capital, risk_per_trade, max_open_trades)
+        self.backtest(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
         return self.calculate_metrics(initial_capital)
 
     def plot_results(self, selected_trade=None):
@@ -220,12 +218,14 @@ end_date = st.sidebar.date_input('End Date', datetime.now())
 initial_capital = st.sidebar.number_input('Initial Capital', value=10000)
 risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100  # Convert to decimal
 max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
+leverage = st.sidebar.slider('Leverage', 1, 100, 1)
+risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
 
 if st.sidebar.button('Run Backtest'):
     with st.spinner('Running backtest...'):
         try:
             strategy = ForexTradingStrategy(symbol, start_date, end_date)
-            results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades)
+            results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
             
             if results is not None:
                 st.header('Backtest Results')
