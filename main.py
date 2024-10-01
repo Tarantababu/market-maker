@@ -184,36 +184,72 @@ class ForexTradingStrategy:
                                  name='Sell Signal', marker=dict(color='red', symbol='triangle-down', size=10)), row=1, col=1)
 
         # Plot equity curve
-        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve', line=dict(color='blue')), row=2, col=1)
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=2, col=1)
 
-        fig.update_layout(height=600, title_text=f"Strategy Backtest Results for {self.symbol}")
-        st.plotly_chart(fig)
-
+        # If a trade is selected, highlight it on the chart
         if selected_trade is not None:
-            st.write(f"Selected Trade Details:\n {selected_trade}")
+            fig.add_shape(type="rect",
+                x0=selected_trade['entry_time'], y0=0, x1=selected_trade['exit_time'], y1=1,
+                xref="x", yref="paper",
+                fillcolor="LightSalmon", opacity=0.5,
+                layer="below", line_width=0,
+            )
+            fig.add_trace(go.Scatter(x=[selected_trade['entry_time'], selected_trade['exit_time']],
+                                     y=[selected_trade['entry_price'], selected_trade['exit_price']],
+                                     mode='lines+markers',
+                                     name='Selected Trade',
+                                     line=dict(color='black', width=2, dash='dash')), row=1, col=1)
 
-# Streamlit interface
-st.title('Forex Trading Strategy Backtest')
+        fig.update_layout(height=800, title_text="Forex Trading Strategy Results")
+        fig.update_xaxes(title_text="Date", row=2, col=1)
+        fig.update_yaxes(title_text="Price", row=1, col=1)
+        fig.update_yaxes(title_text="Capital", row=2, col=1)
 
-symbol = st.text_input('Enter Forex Pair Symbol (e.g., EURUSD=X):', 'EURUSD=X')
-start_date = st.date_input('Start Date:', datetime.now() - timedelta(days=365))
-end_date = st.date_input('End Date:', datetime.now())
-initial_capital = st.number_input('Initial Capital:', min_value=1000, value=10000, step=1000)
-risk_per_trade = st.slider('Risk per Trade (%):', 0.01, 0.05, 0.01)
-max_open_trades = st.slider('Max Open Trades:', 1, 10, 5)
-leverage = st.slider('Leverage:', 1, 50, 10)
-risk_reward_ratio = st.slider('Risk-Reward Ratio:', 1.0, 3.0, 2.0)
+        return fig
 
-if st.button('Run Backtest'):
-    strategy = ForexTradingStrategy(symbol, start_date, end_date)
-    metrics = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
-    
-    if metrics:
-        st.write('Backtest Metrics:')
-        st.write(f"Total Return: {metrics['Total Return']*100:.2f}%")
-        st.write(f"Sharpe Ratio: {metrics['Sharpe Ratio']:.2f}")
-        st.write(f"Max Drawdown: {metrics['Max Drawdown']*100:.2f}%")
-        st.write(f"Final Capital: {metrics['Final Capital']:.2f}")
-        
-        strategy.plot_results()
+# Streamlit app
+st.title('Forex Trading Strategy Backtester')
 
+# Sidebar for user inputs
+st.sidebar.header('Strategy Parameters')
+symbol = st.sidebar.text_input('Forex Symbol', value='EURUSD=X')
+start_date = st.sidebar.date_input('Start Date', datetime.now() - timedelta(days=30))
+end_date = st.sidebar.date_input('End Date', datetime.now())
+initial_capital = st.sidebar.number_input('Initial Capital', value=10000)
+risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100  # Convert to decimal
+max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
+leverage = st.sidebar.slider('Leverage', 1, 100, 1)
+risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
+
+if st.sidebar.button('Run Backtest'):
+    with st.spinner('Running backtest...'):
+        try:
+            strategy = ForexTradingStrategy(symbol, start_date, end_date)
+            results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
+            
+            if results is not None:
+                st.header('Backtest Results')
+                for key, value in results.items():
+                    st.metric(key, f"{value:.4f}")
+
+                st.header('Trade Details')
+                trade_df = pd.DataFrame(strategy.trades)
+                if not trade_df.empty:
+                    st.dataframe(trade_df)
+
+                    st.header('Strategy Performance')
+                    selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
+                                                        format_func=lambda x: f"Trade {x+1}")
+                    selected_trade = trade_df.iloc[selected_trade_index]
+
+                    fig = strategy.plot_results(selected_trade)
+                    st.plotly_chart(fig, use_container_width=True)
+                else:
+                    st.warning("No trades were executed during the backtest period.")
+            else:
+                st.error("Backtest failed. Please check your inputs and try again.")
+        except Exception as e:
+            st.error(f"An error occurred: {e}")
+
+st.sidebar.markdown('---')
+st.sidebar.write('Developed by Your Name')
