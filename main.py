@@ -75,7 +75,7 @@ class ForexTradingStrategy:
                 position = self.data['signal'].iloc[i]
                 
                 # Calculate ATR for dynamic stop loss and take profit
-                atr = self.data['High'].iloc[i-20:i].max() - self.data['Low'].iloc[i-20:i].min()
+                atr = self.data['High'].iloc[i-7:i].max() - self.data['Low'].iloc[i-7:i].min()
                 
                 # Set stop loss and take profit based on risk_reward_ratio
                 stop_loss_price = entry_price - position * atr
