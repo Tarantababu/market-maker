@@ -5,6 +5,26 @@ import numpy as np
 from datetime import datetime, timedelta
 import plotly.graph_objects as go
 from plotly.subplots import make_subplots
+import requests
+import time
+import threading
+
+TELEGRAM_TOKEN = "7148511647:AAFlMohYiqPF2GQFtri2qW4H0WU2-j174TQ"
+TELEGRAM_CHAT_ID = "5611879467"
+
+def send_message(message):
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={message}"
+    try:
+        res = requests.get(url)
+        res.raise_for_status()  # Raise an HTTPError for bad responses
+        if res.status_code == 200:
+            return "sent"
+        else:
+            print(f"Telegram API responded with status code {res.status_code}")
+            return "failed"
+    except requests.RequestException as e:
+        print(f"Request failed: {e}")
+        return "failed"
 
 class ForexTradingStrategy:
     def __init__(self, symbol, rsi_period, rsi_overbought, rsi_oversold):
@@ -16,7 +36,7 @@ class ForexTradingStrategy:
         self.trades = []
         self.open_trades = []
 
-    def fetch_data(self, period="30d", interval="15m"):
+    def fetch_data(self, period="1d", interval="15m"):
         try:
             data = yf.download(self.symbol, period=period, interval=interval)
             if data.empty:
@@ -93,6 +113,41 @@ class ForexTradingStrategy:
         self.detect_displacement()
         return self.generate_signal()
 
+def send_signals_to_telegram():
+    while True:
+        current_time = datetime.now()
+        if current_time.minute % 15 == 1:  # Check if it's 1 minute past each 15-minute mark
+            signals = []
+            for symbol_data in st.session_state.symbols:
+                strategy = ForexTradingStrategy(
+                    symbol_data['symbol'],
+                    symbol_data['rsi_period'],
+                    symbol_data['rsi_overbought'],
+                    symbol_data['rsi_oversold']
+                )
+                signal = strategy.run_strategy()
+                if signal and signal['signal'] != 0:
+                    signals.append(signal)
+            
+            if signals:
+                message = "Active Signals:\n\n"
+                for signal in signals:
+                    message += f"Symbol: {signal['symbol']}\n"
+                    message += f"Signal: {'Buy' if signal['signal'] == 1 else 'Sell'}\n"
+                    message += f"Current Price: {signal['current_price']:.5f}\n"
+                    message += f"RSI: {signal['rsi']:.2f}\n"
+                    message += f"Entry Price: {signal['entry_price']:.5f}\n"
+                    message += f"Stop Loss: {signal['stop_loss']:.5f}\n"
+                    message += f"Take Profit: {signal['take_profit']:.5f}\n\n"
+                
+                send_message(message)
+            
+            # Wait for 60 seconds before the next check
+            time.sleep(60)
+        else:
+            # Wait for 30 seconds before checking the time again
+            time.sleep(30)
+
 def main():
     st.title('Forex Trading Strategy with Real-time Signaling')
 
@@ -145,6 +200,9 @@ def main():
         if st.sidebar.button('Remove Symbol'):
             st.session_state.symbols = [s for s in st.session_state.symbols if s['symbol'] != symbol_to_remove]
             st.sidebar.success(f"Removed {symbol_to_remove} from the watch list.")
+
+    # Start the background task for sending signals to Telegram
+    threading.Thread(target=send_signals_to_telegram, daemon=True).start()
 
 if __name__ == "__main__":
     main()
