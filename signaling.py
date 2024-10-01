@@ -3,8 +3,6 @@ import yfinance as yf
 import pandas as pd
 import numpy as np
 from datetime import datetime, timedelta
-import plotly.graph_objects as go
-from plotly.subplots import make_subplots
 import requests
 import time
 import threading
@@ -13,17 +11,19 @@ TELEGRAM_TOKEN = "7148511647:AAFlMohYiqPF2GQFtri2qW4H0WU2-j174TQ"
 TELEGRAM_CHAT_ID = "5611879467"
 
 def send_message(message):
-    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={message}"
+    url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
+    params = {
+        "chat_id": TELEGRAM_CHAT_ID,
+        "text": message,
+        "parse_mode": "HTML"
+    }
     try:
-        res = requests.get(url)
-        res.raise_for_status()
-        if res.status_code == 200:
-            return "sent"
-        else:
-            print(f"Telegram API responded with status code {res.status_code}")
-            return "failed"
+        response = requests.get(url, params=params)
+        response.raise_for_status()
+        print(f"Message sent successfully: {response.json()}")
+        return "sent"
     except requests.RequestException as e:
-        print(f"Request failed: {e}")
+        print(f"Failed to send message: {e}")
         return "failed"
 
 class ForexTradingStrategy:
@@ -36,15 +36,15 @@ class ForexTradingStrategy:
         self.atr_period = atr_period
         self.data = None
 
-    def fetch_data(self, period="7d", interval="15m"):
+    def fetch_data(self, period="1d", interval="15m"):
         try:
             data = yf.download(self.symbol, period=period, interval=interval)
             if data.empty:
-                st.error(f"No data available for {self.symbol}")
+                print(f"No data available for {self.symbol}")
                 return None
             return data
         except Exception as e:
-            st.error(f"Error fetching data for {self.symbol}: {e}")
+            print(f"Error fetching data for {self.symbol}: {e}")
             return None
 
     def calculate_atr(self, period=14):
@@ -104,46 +104,6 @@ class ForexTradingStrategy:
             return None
         return self.generate_signal()
 
-    def plot_chart(self):
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.7, 0.3])
-
-        # Candlestick chart
-        fig.add_trace(go.Candlestick(x=self.data.index,
-                                     open=self.data['Open'],
-                                     high=self.data['High'],
-                                     low=self.data['Low'],
-                                     close=self.data['Close'],
-                                     name='Price'),
-                      row=1, col=1)
-
-        # RSI
-        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['rsi'], name='RSI'), row=2, col=1)
-        fig.add_hline(y=self.rsi_overbought, line_dash="dash", line_color="red", row=2, col=1)
-        fig.add_hline(y=self.rsi_oversold, line_dash="dash", line_color="green", row=2, col=1)
-
-        # Add latest signal
-        signal = self.generate_signal()
-        if signal['signal'] != 0:
-            color = 'green' if signal['signal'] == 1 else 'red'
-            fig.add_trace(go.Scatter(x=[signal['timestamp']], y=[signal['current_price']],
-                                     mode='markers', marker=dict(color=color, size=10),
-                                     name='Signal'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=[signal['timestamp'], signal['timestamp']],
-                                     y=[signal['entry_price'], signal['stop_loss']],
-                                     mode='lines', line=dict(color='red', width=2),
-                                     name='Stop Loss'), row=1, col=1)
-            fig.add_trace(go.Scatter(x=[signal['timestamp'], signal['timestamp']],
-                                     y=[signal['entry_price'], signal['take_profit']],
-                                     mode='lines', line=dict(color='green', width=2),
-                                     name='Take Profit'), row=1, col=1)
-
-        fig.update_layout(height=800, title_text=f"{self.symbol} - Price and RSI")
-        fig.update_xaxes(title_text="Date", row=2, col=1)
-        fig.update_yaxes(title_text="Price", row=1, col=1)
-        fig.update_yaxes(title_text="RSI", row=2, col=1)
-
-        return fig
-
 def send_signals_to_telegram():
     while True:
         current_time = datetime.now()
@@ -163,17 +123,20 @@ def send_signals_to_telegram():
                     signals.append(signal)
             
             if signals:
-                message = "Active Signals:\n\n"
+                message = "<b>Active Signals:</b>\n\n"
                 for signal in signals:
-                    message += f"Symbol: {signal['symbol']}\n"
-                    message += f"Signal: {'Buy' if signal['signal'] == 1 else 'Sell'}\n"
-                    message += f"Current Price: {signal['current_price']:.5f}\n"
-                    message += f"RSI: {signal['rsi']:.2f}\n"
-                    message += f"Entry Price: {signal['entry_price']:.5f}\n"
-                    message += f"Stop Loss: {signal['stop_loss']:.5f}\n"
-                    message += f"Take Profit: {signal['take_profit']:.5f}\n\n"
+                    message += f"<b>Symbol:</b> {signal['symbol']}\n"
+                    message += f"<b>Signal:</b> {'Buy' if signal['signal'] == 1 else 'Sell'}\n"
+                    message += f"<b>Current Price:</b> {signal['current_price']:.5f}\n"
+                    message += f"<b>RSI:</b> {signal['rsi']:.2f}\n"
+                    message += f"<b>Entry Price:</b> {signal['entry_price']:.5f}\n"
+                    message += f"<b>Stop Loss:</b> {signal['stop_loss']:.5f}\n"
+                    message += f"<b>Take Profit:</b> {signal['take_profit']:.5f}\n\n"
                 
                 send_message(message)
+                print(f"Sent signals at {current_time}")
+            else:
+                print(f"No signals to send at {current_time}")
             
             time.sleep(60)
         else:
@@ -227,20 +190,6 @@ def main():
             df = pd.DataFrame(signals)
             df['signal'] = df['signal'].map({1: 'Buy', -1: 'Sell', 0: 'No Signal'})
             st.dataframe(df.set_index('symbol'))
-
-            selected_symbol = st.selectbox('Select a symbol to view chart', df['symbol'].tolist())
-            if selected_symbol:
-                selected_strategy = ForexTradingStrategy(
-                    selected_symbol,
-                    next(s['rsi_period'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
-                    next(s['rsi_overbought'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
-                    next(s['rsi_oversold'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
-                    next(s['risk_reward_ratio'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
-                    next(s['atr_period'] for s in st.session_state.symbols if s['symbol'] == selected_symbol)
-                )
-                selected_strategy.run_strategy()  # This line ensures the strategy has the latest data
-                fig = selected_strategy.plot_chart()
-                st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No signals generated. Try adding more symbols or adjusting parameters.")
 
@@ -252,7 +201,10 @@ def main():
             st.session_state.symbols = [s for s in st.session_state.symbols if s['symbol'] != symbol_to_remove]
             st.sidebar.success(f"Removed {symbol_to_remove} from the watch list.")
 
-    threading.Thread(target=send_signals_to_telegram, daemon=True).start()
+    # Start the Telegram messaging thread
+    if 'telegram_thread' not in st.session_state:
+        st.session_state.telegram_thread = threading.Thread(target=send_signals_to_telegram, daemon=True)
+        st.session_state.telegram_thread.start()
 
 if __name__ == "__main__":
     main()
