@@ -36,7 +36,7 @@ class ForexTradingStrategy:
         self.atr_period = atr_period
         self.data = None
 
-    def fetch_data(self, period="1d", interval="15m"):
+    def fetch_data(self, period="7d", interval="15m"):
         try:
             data = yf.download(self.symbol, period=period, interval=interval)
             if data.empty:
@@ -103,6 +103,46 @@ class ForexTradingStrategy:
         if self.data is None:
             return None
         return self.generate_signal()
+
+    def plot_chart(self):
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, row_heights=[0.7, 0.3])
+
+        # Candlestick chart
+        fig.add_trace(go.Candlestick(x=self.data.index,
+                                     open=self.data['Open'],
+                                     high=self.data['High'],
+                                     low=self.data['Low'],
+                                     close=self.data['Close'],
+                                     name='Price'),
+                      row=1, col=1)
+
+        # RSI
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['rsi'], name='RSI'), row=2, col=1)
+        fig.add_hline(y=self.rsi_overbought, line_dash="dash", line_color="red", row=2, col=1)
+        fig.add_hline(y=self.rsi_oversold, line_dash="dash", line_color="green", row=2, col=1)
+
+        # Add latest signal
+        signal = self.generate_signal()
+        if signal['signal'] != 0:
+            color = 'green' if signal['signal'] == 1 else 'red'
+            fig.add_trace(go.Scatter(x=[signal['timestamp']], y=[signal['current_price']],
+                                     mode='markers', marker=dict(color=color, size=10),
+                                     name='Signal'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=[signal['timestamp'], signal['timestamp']],
+                                     y=[signal['entry_price'], signal['stop_loss']],
+                                     mode='lines', line=dict(color='red', width=2),
+                                     name='Stop Loss'), row=1, col=1)
+            fig.add_trace(go.Scatter(x=[signal['timestamp'], signal['timestamp']],
+                                     y=[signal['entry_price'], signal['take_profit']],
+                                     mode='lines', line=dict(color='green', width=2),
+                                     name='Take Profit'), row=1, col=1)
+
+        fig.update_layout(height=800, title_text=f"{self.symbol} - Price and RSI")
+        fig.update_xaxes(title_text="Date", row=2, col=1)
+        fig.update_yaxes(title_text="Price", row=1, col=1)
+        fig.update_yaxes(title_text="RSI", row=2, col=1)
+
+        return fig
 
 def send_signals_to_telegram():
     while True:
@@ -187,6 +227,20 @@ def main():
             df = pd.DataFrame(signals)
             df['signal'] = df['signal'].map({1: 'Buy', -1: 'Sell', 0: 'No Signal'})
             st.dataframe(df.set_index('symbol'))
+
+            selected_symbol = st.selectbox('Select a symbol to view chart', df['symbol'].tolist())
+            if selected_symbol:
+                selected_strategy = ForexTradingStrategy(
+                    selected_symbol,
+                    next(s['rsi_period'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
+                    next(s['rsi_overbought'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
+                    next(s['rsi_oversold'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
+                    next(s['risk_reward_ratio'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
+                    next(s['atr_period'] for s in st.session_state.symbols if s['symbol'] == selected_symbol)
+                )
+                selected_strategy.run_strategy()
+                fig = selected_strategy.plot_chart()
+                st.plotly_chart(fig, use_container_width=True)
         else:
             st.info("No signals generated. Try adding more symbols or adjusting parameters.")
 
