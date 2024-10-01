@@ -81,23 +81,20 @@ class ForexTradingStrategy:
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
+        self.data['capital'] = self.data['capital'].astype(float)
         
         for i in range(1, len(self.data)):
             current_price = self.data['Close'].iloc[i]
             
-            # Check for new trade signal
             if self.data['signal'].iloc[i] != 0 and len(self.open_trades) < max_open_trades:
                 entry_price = self.data['entry_price'].iloc[i]
                 position = self.data['signal'].iloc[i]
                 
-                # Calculate ATR for dynamic stop loss and take profit
                 atr = self.data['High'].iloc[i-20:i].max() - self.data['Low'].iloc[i-20:i].min()
                 
-                # Set stop loss and take profit based on risk_reward_ratio
                 stop_loss_price = entry_price - position * atr
                 take_profit_price = entry_price + position * atr * risk_reward_ratio
                 
-                # Calculate position size based on risk per trade and leverage
                 risk_amount = risk_per_trade * self.data['capital'].iloc[i-1]
                 pip_value = 0.0001 if 'JPY' not in self.symbol else 0.01
                 position_size = (risk_amount / (atr / pip_value)) * leverage
@@ -111,7 +108,6 @@ class ForexTradingStrategy:
                     'position_size': position_size
                 })
             
-            # Check open trades for exit conditions
             closed_trades = []
             for trade in self.open_trades:
                 if (trade['position'] == 1 and current_price <= trade['stop_loss']) or \
@@ -144,14 +140,11 @@ class ForexTradingStrategy:
                     })
                     closed_trades.append(trade)
             
-            # Remove closed trades from open trades list
             self.open_trades = [trade for trade in self.open_trades if trade not in closed_trades]
             
-            # Update capital for the current timestamp
             if i > 0:
                 self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1] + sum(trade['pnl'] for trade in self.trades if trade['exit_time'] == self.data.index[i])
 
-        # Calculate daily returns
         self.data['daily_returns'] = self.data['capital'].pct_change().fillna(0)
 
     def calculate_metrics(self, initial_capital):
@@ -187,28 +180,22 @@ class ForexTradingStrategy:
         fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
                             subplot_titles=(f'{self.symbol} - Price and Signals', 'RSI', 'Equity Curve'))
 
-        # Plot price
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['Close'], name='Close Price'), row=1, col=1)
 
-        # Plot buy signals
         buy_signals = self.data[self.data['signal'] == 1]
         fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', 
                                  name='Buy Signal', marker=dict(color='green', symbol='triangle-up', size=10)), row=1, col=1)
 
-        # Plot sell signals
         sell_signals = self.data[self.data['signal'] == -1]
         fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', 
                                  name='Sell Signal', marker=dict(color='red', symbol='triangle-down', size=10)), row=1, col=1)
 
-        # Plot RSI
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['rsi'], name='RSI'), row=2, col=1)
         fig.add_hline(y=self.rsi_overbought, line_dash="dash", line_color="red", row=2, col=1)
         fig.add_hline(y=self.rsi_oversold, line_dash="dash", line_color="green", row=2, col=1)
 
-        # Plot equity curve
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=3, col=1)
 
-        # If a trade is selected, highlight it on the chart
         if selected_trade is not None:
             fig.add_shape(type="rect",
                 x0=selected_trade['entry_time'], y0=0, x1=selected_trade['exit_time'], y1=1,
@@ -230,21 +217,18 @@ class ForexTradingStrategy:
 
         return fig
 
-# Streamlit app
 st.title('Forex Trading Strategy Backtester')
 
-# Sidebar for user inputs
 st.sidebar.header('Strategy Parameters')
 symbol = st.sidebar.text_input('Forex Symbol', value='EURUSD=X')
 start_date = st.sidebar.date_input('Start Date', datetime.now() - timedelta(days=30))
 end_date = st.sidebar.date_input('End Date', datetime.now())
 initial_capital = st.sidebar.number_input('Initial Capital', value=10000)
-risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100  # Convert to decimal
+risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100
 max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
 leverage = st.sidebar.slider('Leverage', 1, 100, 1)
 risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
 
-# RSI inputs
 st.sidebar.header('RSI Parameters')
 rsi_period = st.sidebar.slider('RSI Period', 5, 30, 14)
 rsi_overbought = st.sidebar.slider('RSI Overbought Level', 50, 90, 70)
@@ -258,8 +242,6 @@ if st.sidebar.button('Run Backtest'):
             
             if results is not None:
                 st.header('Statistics')
-                
-                # Display backtest results
                 col1, col2, col3, col4 = st.columns(4)
                 col1.metric("Total Return", f"{results['Total Return']:.2%}")
                 col2.metric("Sharpe Ratio", f"{results['Sharpe Ratio']:.2f}")
@@ -268,15 +250,12 @@ if st.sidebar.button('Run Backtest'):
 
                 trade_df = pd.DataFrame(strategy.trades)
                 if not trade_df.empty:
-                    # Convert datetime to string for display
                     trade_df['entry_time'] = pd.to_datetime(trade_df['entry_time'])
                     trade_df['exit_time'] = pd.to_datetime(trade_df['exit_time'])
                     trade_df['entry_time_str'] = trade_df['entry_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                     trade_df['exit_time_str'] = trade_df['exit_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
-                    # Round numeric columns
                     trade_df = trade_df.round({'entry_price': 5, 'exit_price': 5, 'pnl': 2})
 
-                    # Additional statistics
                     total_trades = len(trade_df)
                     winning_trades = len(trade_df[trade_df['pnl'] > 0])
                     losing_trades = len(trade_df[trade_df['pnl'] <= 0])
@@ -288,23 +267,19 @@ if st.sidebar.button('Run Backtest'):
                     col3.metric("Losing Trades", losing_trades)
                     st.metric("Win Rate", f"{win_rate:.2%}")
 
-                    # Profit Factor
                     total_profit = trade_df[trade_df['pnl'] > 0]['pnl'].sum()
                     total_loss = abs(trade_df[trade_df['pnl'] <= 0]['pnl'].sum())
                     profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
                     st.metric("Profit Factor", f"{profit_factor:.2f}")
 
-                    # Average Trade
                     avg_trade = trade_df['pnl'].mean()
                     st.metric("Average Trade", f"${avg_trade:.2f}")
 
-                    # Largest Win and Loss
                     largest_win = trade_df['pnl'].max()
                     largest_loss = trade_df['pnl'].min()
                     st.metric("Largest Win", f"${largest_win:.2f}")
                     st.metric("Largest Loss", f"${largest_loss:.2f}")
 
-                    # Total Sum of Profit
                     total_sum_profit = trade_df['pnl'].sum()
                     st.metric("Total Sum of Profit", f"${total_sum_profit:.2f}")
 
@@ -313,12 +288,8 @@ if st.sidebar.button('Run Backtest'):
 
                     st.header('Strategy Performance')
                     selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
-                                                        format_func=lambda x: f"Trade {x+1}: {trade_df.iloc[x]['entry_time_str']} to {trade_df.iloc[x]['exit_time_str']}")
-                    selected_trade = trade_df.iloc[selected_trade_index]
-
-                    # Ensure datetime objects for plotting
-                    selected_trade['entry_time'] = pd.to_datetime(selected_trade['entry_time'])
-                    selected_trade['exit_time'] = pd.to_datetime(selected_trade['exit_time'])
+                                                        format_func=lambda x: f"Trade {x+1}: {trade_df['entry_time_str'].iloc[x]} to {trade_df['exit_time_str'].iloc[x]}")
+                    selected_trade = trade_df.iloc[selected_trade_index].to_dict()
 
                     fig = strategy.plot_results(selected_trade)
                     st.plotly_chart(fig, use_container_width=True)
