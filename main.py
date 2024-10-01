@@ -55,11 +55,11 @@ class ForexTradingStrategy:
                 
                 if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
                     if end_price > start_price:
-                        self.data.loc[self.data.index[i+1], 'signal'] = -1
+                        self.data.loc[self.data.index[i+1], 'signal'] = 1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
                     else:
-                        self.data.loc[self.data.index[i+1], 'signal'] = 1
+                        self.data.loc[self.data.index[i+1], 'signal'] = -1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
 
