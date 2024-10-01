@@ -55,13 +55,15 @@ class ForexTradingStrategy:
                 
                 if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
                     if end_price > start_price:
-                        self.data.loc[self.data.index[i+1], 'signal'] = 1
-                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
-                        self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
-                    else:
+                        # Reversed logic: Set to -1 (sell) instead of 1 (buy)
                         self.data.loc[self.data.index[i+1], 'signal'] = -1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
+                    else:
+                        # Reversed logic: Set to 1 (buy) instead of -1 (sell)
+                        self.data.loc[self.data.index[i+1], 'signal'] = 1
+                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                        self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
@@ -176,80 +178,29 @@ class ForexTradingStrategy:
         # Plot buy signals
         buy_signals = self.data[self.data['signal'] == 1]
         fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', 
-                                 name='Buy Signal', marker=dict(color='green', symbol='triangle-up', size=10)), row=1, col=1)
+                                 name='Buy Signal', marker=dict(color='green', size=10)), row=1, col=1)
 
         # Plot sell signals
         sell_signals = self.data[self.data['signal'] == -1]
         fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', 
-                                 name='Sell Signal', marker=dict(color='red', symbol='triangle-down', size=10)), row=1, col=1)
+                                 name='Sell Signal', marker=dict(color='red', size=10)), row=1, col=1)
 
         # Plot equity curve
-        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Capital'), row=2, col=1)
 
-        # If a trade is selected, highlight it on the chart
-        if selected_trade is not None:
-            fig.add_shape(type="rect",
-                x0=selected_trade['entry_time'], y0=0, x1=selected_trade['exit_time'], y1=1,
-                xref="x", yref="paper",
-                fillcolor="LightSalmon", opacity=0.5,
-                layer="below", line_width=0,
-            )
-            fig.add_trace(go.Scatter(x=[selected_trade['entry_time'], selected_trade['exit_time']],
-                                     y=[selected_trade['entry_price'], selected_trade['exit_price']],
-                                     mode='lines+markers',
-                                     name='Selected Trade',
-                                     line=dict(color='black', width=2, dash='dash')), row=1, col=1)
+        fig.update_layout(height=600, title=f'{self.symbol} Strategy Backtest Results')
+        st.plotly_chart(fig)
 
-        fig.update_layout(height=800, title_text="Forex Trading Strategy Results")
-        fig.update_xaxes(title_text="Date", row=2, col=1)
-        fig.update_yaxes(title_text="Price", row=1, col=1)
-        fig.update_yaxes(title_text="Capital", row=2, col=1)
+# Example usage with Streamlit interface
+st.title("Forex Trading Strategy Backtest")
 
-        return fig
+symbol = st.text_input("Symbol", "EURUSD=X")
+start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
+end_date = st.date_input("End Date", datetime.now())
 
-# Streamlit app
-st.title('Forex Trading Strategy Backtester')
-
-# Sidebar for user inputs
-st.sidebar.header('Strategy Parameters')
-symbol = st.sidebar.text_input('Forex Symbol', value='EURUSD=X')
-start_date = st.sidebar.date_input('Start Date', datetime.now() - timedelta(days=30))
-end_date = st.sidebar.date_input('End Date', datetime.now())
-initial_capital = st.sidebar.number_input('Initial Capital', value=10000)
-risk_per_trade = st.sidebar.slider('Risk per Trade (%)', 0.5, 100.0, 1.0, 0.1) / 100  # Convert to decimal
-max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
-leverage = st.sidebar.slider('Leverage', 1, 100, 1)
-risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
-
-if st.sidebar.button('Run Backtest'):
-    with st.spinner('Running backtest...'):
-        try:
-            strategy = ForexTradingStrategy(symbol, start_date, end_date)
-            results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
-            
-            if results is not None:
-                st.header('Backtest Results')
-                for key, value in results.items():
-                    st.metric(key, f"{value:.4f}")
-
-                st.header('Trade Details')
-                trade_df = pd.DataFrame(strategy.trades)
-                if not trade_df.empty:
-                    st.dataframe(trade_df)
-
-                    st.header('Strategy Performance')
-                    selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
-                                                        format_func=lambda x: f"Trade {x+1}")
-                    selected_trade = trade_df.iloc[selected_trade_index]
-
-                    fig = strategy.plot_results(selected_trade)
-                    st.plotly_chart(fig, use_container_width=True)
-                else:
-                    st.warning("No trades were executed during the backtest period.")
-            else:
-                st.error("Backtest failed. Please check your inputs and try again.")
-        except Exception as e:
-            st.error(f"An error occurred: {e}")
-
-st.sidebar.markdown('---')
-st.sidebar.write('Developed by Your Name')
+if st.button("Run Backtest"):
+    strategy = ForexTradingStrategy(symbol, start_date, end_date)
+    metrics = strategy.run_strategy()
+    if metrics:
+        st.write("Metrics:", metrics)
+        strategy.plot_results()
