@@ -149,7 +149,7 @@ class ForexTradingStrategy:
             
             # Update capital for the current timestamp
             if i > 0:
-                self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1]
+                self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1] + sum(trade['pnl'] for trade in self.trades if trade['exit_time'] == self.data.index[i])
 
         # Calculate daily returns
         self.data['daily_returns'] = self.data['capital'].pct_change().fillna(0)
@@ -244,7 +244,7 @@ max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
 leverage = st.sidebar.slider('Leverage', 1, 100, 1)
 risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
 
-# New RSI inputs
+# RSI inputs
 st.sidebar.header('RSI Parameters')
 rsi_period = st.sidebar.slider('RSI Period', 5, 30, 14)
 rsi_overbought = st.sidebar.slider('RSI Overbought Level', 50, 90, 70)
@@ -257,11 +257,15 @@ if st.sidebar.button('Run Backtest'):
             results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
             
             if results is not None:
-                st.header('Backtest Results')
-                for key, value in results.items():
-                    st.metric(key, f"{value:.4f}")
+                st.header('Statistics')
+                
+                # Display backtest results
+                col1, col2, col3, col4 = st.columns(4)
+                col1.metric("Total Return", f"{results['Total Return']:.2%}")
+                col2.metric("Sharpe Ratio", f"{results['Sharpe Ratio']:.2f}")
+                col3.metric("Max Drawdown", f"{results['Max Drawdown']:.2%}")
+                col4.metric("Final Capital", f"${results['Final Capital']:.2f}")
 
-                st.header('Trade Details')
                 trade_df = pd.DataFrame(strategy.trades)
                 if not trade_df.empty:
                     # Convert datetime to string for display
@@ -271,15 +275,6 @@ if st.sidebar.button('Run Backtest'):
                     trade_df['exit_time_str'] = trade_df['exit_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                     # Round numeric columns
                     trade_df = trade_df.round({'entry_price': 5, 'exit_price': 5, 'pnl': 2})
-                    st.dataframe(trade_df[['entry_time_str', 'exit_time_str', 'position', 'entry_price', 'exit_price', 'pnl', 'exit_reason']])
-
-                    st.header('Strategy Performance')
-                    selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
-                                                        format_func=lambda x: f"Trade {x+1}: {trade_df.iloc[x]['entry_time_str']} to {trade_df.iloc[x]['exit_time_str']}")
-                    selected_trade = trade_df.iloc[selected_trade_index]
-
-                    fig = strategy.plot_results(selected_trade)
-                    st.plotly_chart(fig, use_container_width=True)
 
                     # Additional statistics
                     total_trades = len(trade_df)
@@ -287,7 +282,6 @@ if st.sidebar.button('Run Backtest'):
                     losing_trades = len(trade_df[trade_df['pnl'] <= 0])
                     win_rate = winning_trades / total_trades if total_trades > 0 else 0
 
-                    st.header('Additional Statistics')
                     col1, col2, col3 = st.columns(3)
                     col1.metric("Total Trades", total_trades)
                     col2.metric("Winning Trades", winning_trades)
@@ -314,6 +308,16 @@ if st.sidebar.button('Run Backtest'):
                     total_sum_profit = trade_df['pnl'].sum()
                     st.metric("Total Sum of Profit", f"${total_sum_profit:.2f}")
 
+                    st.header('Trade Details')
+                    st.dataframe(trade_df[['entry_time_str', 'exit_time_str', 'position', 'entry_price', 'exit_price', 'pnl', 'exit_reason']])
+
+                    st.header('Strategy Performance')
+                    selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
+                                                        format_func=lambda x: f"Trade {x+1}: {trade_df.iloc[x]['entry_time_str']} to {trade_df.iloc[x]['exit_time_str']}")
+                    selected_trade = trade_df.iloc[selected_trade_index]
+
+                    fig = strategy.plot_results(selected_trade)
+                    st.plotly_chart(fig, use_container_width=True)
                 else:
                     st.warning("No trades were executed during the backtest period.")
             else:
