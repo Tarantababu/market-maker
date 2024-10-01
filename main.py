@@ -65,6 +65,7 @@ class ForexTradingStrategy:
                     self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                     self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
 
+
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
         
