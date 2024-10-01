@@ -42,6 +42,19 @@ class ForexTradingStrategy:
         self.data['gap'] = self.data['Open'] - self.data['Close'].shift(1)
         self.data['fvg'] = np.where(abs(self.data['gap']) > threshold * self.data['Close'].shift(1), 1, 0)
 
+    def calculate_rsi(self, series, window=14):
+        delta = series.diff()
+        gain = (delta.where(delta > 0, 0)).rolling(window=window).mean()
+        loss = (-delta.where(delta < 0, 0)).rolling(window=window).mean()
+        rs = gain / loss
+        return 100 - (100 / (1 + rs))
+
+    def apply_momentum_filter(self):
+        self.data['rsi'] = self.calculate_rsi(self.data['Close'], window=14)
+        self.data['trend'] = np.where(self.data['Close'] > self.data['Close'].rolling(window=20).mean(), 1, -1)
+        self.data['momentum_filter'] = np.where((self.data['rsi'] > 50) & (self.data['trend'] == 1), 'buy',
+                                                np.where((self.data['rsi'] < 50) & (self.data['trend'] == -1), 'sell', 'hold'))
+
     def generate_signals(self):
         self.data['signal'] = 0
         self.data['entry_price'] = np.nan
@@ -54,11 +67,11 @@ class ForexTradingStrategy:
                 fib_levels = self.fibonacci_retracement(start_price, end_price)
                 
                 if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
-                    if end_price > start_price:
+                    if end_price > start_price and self.data['momentum_filter'].iloc[i] == 'buy':
                         self.data.loc[self.data.index[i+1], 'signal'] = 1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
-                    else:
+                    elif end_price < start_price and self.data['momentum_filter'].iloc[i] == 'sell':
                         self.data.loc[self.data.index[i+1], 'signal'] = -1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
@@ -75,7 +88,7 @@ class ForexTradingStrategy:
                 position = self.data['signal'].iloc[i]
                 
                 # Calculate ATR for dynamic stop loss and take profit
-                atr = self.data['High'].iloc[i-4:i].max() - self.data['Low'].iloc[i-4:i].min()
+                atr = self.data['High'].iloc[i-20:i].max() - self.data['Low'].iloc[i-20:i].min()
                 
                 # Set stop loss and take profit based on risk_reward_ratio
                 stop_loss_price = entry_price - position * atr
@@ -162,13 +175,14 @@ class ForexTradingStrategy:
         self.identify_liquidity_pools()
         self.detect_displacement()
         self.identify_fair_value_gaps()
+        self.apply_momentum_filter()
         self.generate_signals()
         self.backtest(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
         return self.calculate_metrics(initial_capital)
 
     def plot_results(self, selected_trade=None):
-        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
-                            subplot_titles=(f'{self.symbol} - Price and Signals', 'Equity Curve'))
+        fig = make_subplots(rows=3, cols=1, shared_xaxes=True, vertical_spacing=0.1, 
+                            subplot_titles=(f'{self.symbol} - Price and Signals', 'RSI', 'Equity Curve'))
 
         # Plot price
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['Close'], name='Close Price'), row=1, col=1)
@@ -183,8 +197,13 @@ class ForexTradingStrategy:
         fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', 
                                  name='Sell Signal', marker=dict(color='red', symbol='triangle-down', size=10)), row=1, col=1)
 
+        # Plot RSI
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['rsi'], name='RSI'), row=2, col=1)
+        fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
+        fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+
         # Plot equity curve
-        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=3, col=1)
 
         # If a trade is selected, highlight it on the chart
         if selected_trade is not None:
@@ -200,10 +219,11 @@ class ForexTradingStrategy:
                                      name='Selected Trade',
                                      line=dict(color='black', width=2, dash='dash')), row=1, col=1)
 
-        fig.update_layout(height=800, title_text="Forex Trading Strategy Results")
-        fig.update_xaxes(title_text="Date", row=2, col=1)
+        fig.update_layout(height=1000, title_text="Forex Trading Strategy Results")
+        fig.update_xaxes(title_text="Date", row=3, col=1)
         fig.update_yaxes(title_text="Price", row=1, col=1)
-        fig.update_yaxes(title_text="Capital", row=2, col=1)
+        fig.update_yaxes(title_text="RSI", row=2, col=1)
+        fig.update_yaxes(title_text="Capital", row=3, col=1)
 
         return fig
 
@@ -235,6 +255,11 @@ if st.sidebar.button('Run Backtest'):
                 st.header('Trade Details')
                 trade_df = pd.DataFrame(strategy.trades)
                 if not trade_df.empty:
+                    # Convert datetime to string for display
+                    trade_df['entry_time'] = trade_df['entry_time'].astype(str)
+                    trade_df['exit_time'] = trade_df['exit_time'].astype(str)
+                    # Round numeric columns
+                    trade_df = trade_df.round({'entry_price': 5, 'exit_price': 5, 'pnl': 2})
                     st.dataframe(trade_df)
 
                     st.header('Strategy Performance')
@@ -244,6 +269,36 @@ if st.sidebar.button('Run Backtest'):
 
                     fig = strategy.plot_results(selected_trade)
                     st.plotly_chart(fig, use_container_width=True)
+
+                    # Additional statistics
+                    total_trades = len(trade_df)
+                    winning_trades = len(trade_df[trade_df['pnl'] > 0])
+                    losing_trades = len(trade_df[trade_df['pnl'] <= 0])
+                    win_rate = winning_trades / total_trades if total_trades > 0 else 0
+
+                    st.header('Additional Statistics')
+                    col1, col2, col3 = st.columns(3)
+                    col1.metric("Total Trades", total_trades)
+                    col2.metric("Winning Trades", winning_trades)
+                    col3.metric("Losing Trades", losing_trades)
+                    st.metric("Win Rate", f"{win_rate:.2%}")
+
+                    # Profit Factor
+                    total_profit = trade_df[trade_df['pnl'] > 0]['pnl'].sum()
+                    total_loss = abs(trade_df[trade_df['pnl'] <= 0]['pnl'].sum())
+                    profit_factor = total_profit / total_loss if total_loss != 0 else float('inf')
+                    st.metric("Profit Factor", f"{profit_factor:.2f}")
+
+                    # Average Trade
+                    avg_trade = trade_df['pnl'].mean()
+                    st.metric("Average Trade", f"${avg_trade:.2f}")
+
+                    # Largest Win and Loss
+                    largest_win = trade_df['pnl'].max()
+                    largest_loss = trade_df['pnl'].min()
+                    st.metric("Largest Win", f"${largest_win:.2f}")
+                    st.metric("Largest Loss", f"${largest_loss:.2f}")
+
                 else:
                     st.warning("No trades were executed during the backtest period.")
             else:
