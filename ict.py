@@ -6,7 +6,7 @@ import plotly.graph_objects as go
 from datetime import datetime, timedelta
 
 # Alpha Vantage API key
-ALPHA_VANTAGE_API_KEY = '1260MG2P7VRFWMVA'  # Replace with your actual API key
+ALPHA_VANTAGE_API_KEY = '--'  # Replace with your actual API key
 
 # Function to fetch data from Alpha Vantage
 def fetch_data(symbol, interval='1min', outputsize='full'):
