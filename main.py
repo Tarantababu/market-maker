@@ -316,6 +316,10 @@ if st.sidebar.button('Run Backtest'):
                                                         format_func=lambda x: f"Trade {x+1}: {trade_df.iloc[x]['entry_time_str']} to {trade_df.iloc[x]['exit_time_str']}")
                     selected_trade = trade_df.iloc[selected_trade_index]
 
+                    # Ensure datetime objects for plotting
+                    selected_trade['entry_time'] = pd.to_datetime(selected_trade['entry_time'])
+                    selected_trade['exit_time'] = pd.to_datetime(selected_trade['exit_time'])
+
                     fig = strategy.plot_results(selected_trade)
                     st.plotly_chart(fig, use_container_width=True)
                 else:
