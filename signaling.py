@@ -238,7 +238,7 @@ def main():
                     next(s['risk_reward_ratio'] for s in st.session_state.symbols if s['symbol'] == selected_symbol),
                     next(s['atr_period'] for s in st.session_state.symbols if s['symbol'] == selected_symbol)
                 )
-                selected_strategy.run_strategy()
+                selected_strategy.run_strategy()  # This line ensures the strategy has the latest data
                 fig = selected_strategy.plot_chart()
                 st.plotly_chart(fig, use_container_width=True)
         else:
