@@ -43,25 +43,27 @@ class ForexTradingStrategy:
         self.data['fvg'] = np.where(abs(self.data['gap']) > threshold * self.data['Close'].shift(1), 1, 0)
 
     def generate_signals(self):
-        self.data['signal'] = 0
-        self.data['entry_price'] = np.nan
-        self.data['target'] = np.nan
-        
-        for i in range(1, len(self.data) - 1):
-            if self.data['displacement_signal'].iloc[i] == 1:
-                start_price = self.data['Close'].iloc[i-1]
-                end_price = self.data['Close'].iloc[i]
-                fib_levels = self.fibonacci_retracement(start_price, end_price)
-                
-                if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
-                    if end_price > start_price:
-                        self.data.loc[self.data.index[i+1], 'signal'] = 1
-                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
-                        self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
-                    else:
-                        self.data.loc[self.data.index[i+1], 'signal'] = -1
-                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
-                        self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
+    self.data['signal'] = 0
+    self.data['entry_price'] = np.nan
+    self.data['target'] = np.nan
+    
+    for i in range(1, len(self.data) - 1):
+        if self.data['displacement_signal'].iloc[i] == 1:
+            start_price = self.data['Close'].iloc[i-1]
+            end_price = self.data['Close'].iloc[i]
+            fib_levels = self.fibonacci_retracement(start_price, end_price)
+            
+            if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
+                if end_price > start_price:
+                    # Reversed logic: Set to -1 (sell) instead of 1 (buy)
+                    self.data.loc[self.data.index[i+1], 'signal'] = -1
+                    self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                    self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
+                else:
+                    # Reversed logic: Set to 1 (buy) instead of -1 (sell)
+                    self.data.loc[self.data.index[i+1], 'signal'] = 1
+                    self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                    self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
