@@ -16,7 +16,7 @@ def send_message(message):
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage?chat_id={TELEGRAM_CHAT_ID}&text={message}"
     try:
         res = requests.get(url)
-        res.raise_for_status()  # Raise an HTTPError for bad responses
+        res.raise_for_status()
         if res.status_code == 200:
             return "sent"
         else:
@@ -27,16 +27,16 @@ def send_message(message):
         return "failed"
 
 class ForexTradingStrategy:
-    def __init__(self, symbol, rsi_period, rsi_overbought, rsi_oversold):
+    def __init__(self, symbol, rsi_period, rsi_overbought, rsi_oversold, risk_reward_ratio, atr_period):
         self.symbol = symbol
         self.rsi_period = rsi_period
         self.rsi_overbought = rsi_overbought
         self.rsi_oversold = rsi_oversold
+        self.risk_reward_ratio = risk_reward_ratio
+        self.atr_period = atr_period
         self.data = None
-        self.trades = []
-        self.open_trades = []
 
-    def fetch_data(self, period="45d", interval="15m"):
+    def fetch_data(self, period="1d", interval="15m"):
         try:
             data = yf.download(self.symbol, period=period, interval=interval)
             if data.empty:
@@ -47,17 +47,13 @@ class ForexTradingStrategy:
             st.error(f"Error fetching data for {self.symbol}: {e}")
             return None
 
-    def identify_liquidity_pools(self, window=10):
-        self.data['high_pool'] = self.data['High'].rolling(window=window).max()
-        self.data['low_pool'] = self.data['Low'].rolling(window=window).min()
-
-    def detect_displacement(self, threshold=0.0005):
-        self.data['displacement'] = (self.data['Close'] - self.data['Close'].shift(1)) / self.data['Close'].shift(1)
-        self.data['displacement_signal'] = np.where(abs(self.data['displacement']) > threshold, 1, 0)
-
-    def fibonacci_retracement(self, start, end):
-        diff = end - start
-        return [end - level * diff for level in [0.236, 0.382, 0.5, 0.618, 0.786]]
+    def calculate_atr(self, period=14):
+        high_low = self.data['High'] - self.data['Low']
+        high_close = np.abs(self.data['High'] - self.data['Close'].shift())
+        low_close = np.abs(self.data['Low'] - self.data['Close'].shift())
+        ranges = pd.concat([high_low, high_close, low_close], axis=1)
+        true_range = np.max(ranges, axis=1)
+        return true_range.rolling(period).mean()
 
     def calculate_rsi(self, series, window=14):
         delta = series.diff()
@@ -68,31 +64,28 @@ class ForexTradingStrategy:
 
     def generate_signal(self):
         self.data['rsi'] = self.calculate_rsi(self.data['Close'], window=self.rsi_period)
+        self.data['atr'] = self.calculate_atr(period=self.atr_period)
         
         last_index = self.data.index[-1]
         current_price = self.data['Close'].iloc[-1]
         current_rsi = self.data['rsi'].iloc[-1]
+        current_atr = self.data['atr'].iloc[-1]
         
         signal = 0
         entry_price = np.nan
         stop_loss = np.nan
         take_profit = np.nan
         
-        if self.data['displacement_signal'].iloc[-1] == 1:
-            start_price = self.data['Close'].iloc[-2]
-            end_price = current_price
-            fib_levels = self.fibonacci_retracement(start_price, end_price)
-            
-            if end_price > start_price and current_rsi < self.rsi_oversold:
-                signal = 1
-                entry_price = fib_levels[3]
-                stop_loss = fib_levels[4]
-                take_profit = self.data['high_pool'].iloc[-1]
-            elif end_price < start_price and current_rsi > self.rsi_overbought:
-                signal = -1
-                entry_price = fib_levels[3]
-                stop_loss = fib_levels[2]
-                take_profit = self.data['low_pool'].iloc[-1]
+        if current_rsi < self.rsi_oversold:
+            signal = 1  # Buy signal
+            entry_price = current_price
+            stop_loss = entry_price - current_atr
+            take_profit = entry_price + (current_atr * self.risk_reward_ratio)
+        elif current_rsi > self.rsi_overbought:
+            signal = -1  # Sell signal
+            entry_price = current_price
+            stop_loss = entry_price + current_atr
+            take_profit = entry_price - (current_atr * self.risk_reward_ratio)
         
         return {
             'symbol': self.symbol,
@@ -109,21 +102,21 @@ class ForexTradingStrategy:
         self.data = self.fetch_data()
         if self.data is None:
             return None
-        self.identify_liquidity_pools()
-        self.detect_displacement()
         return self.generate_signal()
 
 def send_signals_to_telegram():
     while True:
         current_time = datetime.now()
-        if current_time.minute % 15 == 1:  # Check if it's 1 minute past each 15-minute mark
+        if current_time.minute % 15 == 1:
             signals = []
             for symbol_data in st.session_state.symbols:
                 strategy = ForexTradingStrategy(
                     symbol_data['symbol'],
                     symbol_data['rsi_period'],
                     symbol_data['rsi_overbought'],
-                    symbol_data['rsi_oversold']
+                    symbol_data['rsi_oversold'],
+                    symbol_data['risk_reward_ratio'],
+                    symbol_data['atr_period']
                 )
                 signal = strategy.run_strategy()
                 if signal and signal['signal'] != 0:
@@ -142,14 +135,12 @@ def send_signals_to_telegram():
                 
                 send_message(message)
             
-            # Wait for 60 seconds before the next check
             time.sleep(60)
         else:
-            # Wait for 30 seconds before checking the time again
             time.sleep(30)
 
 def main():
-    st.title('Forex Trading Strategy with Real-time Signaling')
+    st.title('Forex Trading Strategy with Dynamic SL/TP')
 
     if 'symbols' not in st.session_state:
         st.session_state.symbols = []
@@ -159,6 +150,8 @@ def main():
     rsi_period = st.sidebar.number_input('RSI Period', value=14, min_value=1, max_value=100)
     rsi_overbought = st.sidebar.number_input('RSI Overbought Level', value=70, min_value=50, max_value=100)
     rsi_oversold = st.sidebar.number_input('RSI Oversold Level', value=30, min_value=0, max_value=50)
+    risk_reward_ratio = st.sidebar.number_input('Risk-Reward Ratio', value=2.0, min_value=0.1, max_value=10.0, step=0.1)
+    atr_period = st.sidebar.number_input('ATR Period', value=14, min_value=1, max_value=100)
 
     if st.sidebar.button('Add Symbol'):
         if new_symbol and new_symbol not in [s['symbol'] for s in st.session_state.symbols]:
@@ -166,7 +159,9 @@ def main():
                 'symbol': new_symbol,
                 'rsi_period': rsi_period,
                 'rsi_overbought': rsi_overbought,
-                'rsi_oversold': rsi_oversold
+                'rsi_oversold': rsi_oversold,
+                'risk_reward_ratio': risk_reward_ratio,
+                'atr_period': atr_period
             })
             st.success(f"Added {new_symbol} to the watch list.")
         else:
@@ -179,7 +174,9 @@ def main():
                 symbol_data['symbol'],
                 symbol_data['rsi_period'],
                 symbol_data['rsi_overbought'],
-                symbol_data['rsi_oversold']
+                symbol_data['rsi_oversold'],
+                symbol_data['risk_reward_ratio'],
+                symbol_data['atr_period']
             )
             signal = strategy.run_strategy()
             if signal:
@@ -201,7 +198,6 @@ def main():
             st.session_state.symbols = [s for s in st.session_state.symbols if s['symbol'] != symbol_to_remove]
             st.sidebar.success(f"Removed {symbol_to_remove} from the watch list.")
 
-    # Start the background task for sending signals to Telegram
     threading.Thread(target=send_signals_to_telegram, daemon=True).start()
 
 if __name__ == "__main__":
