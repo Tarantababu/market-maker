@@ -10,8 +10,8 @@ from io import StringIO
 class ForexTradingStrategy:
     def __init__(self, symbol, start_date, end_date, rsi_period, rsi_overbought, rsi_oversold, api_key):
         self.symbol = symbol
-        self.start_date = start_date
-        self.end_date = end_date
+        self.start_date = pd.Timestamp(start_date).date()
+        self.end_date = pd.Timestamp(end_date).date()
         self.rsi_period = rsi_period
         self.rsi_overbought = rsi_overbought
         self.rsi_oversold = rsi_oversold
@@ -39,8 +39,12 @@ class ForexTradingStrategy:
             data.set_index('Datetime', inplace=True)
             data.sort_index(inplace=True)
             
+            # Convert start_date and end_date to datetime
+            start_datetime = pd.Timestamp(self.start_date).tz_localize(None)
+            end_datetime = pd.Timestamp(self.end_date).replace(hour=23, minute=59, second=59).tz_localize(None)
+            
             # Filter data based on start and end dates
-            data = data[(data.index >= self.start_date) & (data.index <= self.end_date)]
+            data = data[(data.index >= start_datetime) & (data.index <= end_datetime)]
             
             if data.empty:
                 st.error(f"No data available for {self.symbol} between {self.start_date} and {self.end_date}")
@@ -238,6 +242,7 @@ class ForexTradingStrategy:
 
         return fig
 
+# Streamlit UI
 st.title('Forex Trading Strategy Backtester')
 
 st.sidebar.header('Strategy Parameters')
