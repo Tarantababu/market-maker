@@ -55,15 +55,13 @@ class ForexTradingStrategy:
                 
                 if (self.data['Low'].iloc[i+1] <= fib_levels[4]) and (self.data['High'].iloc[i+1] >= fib_levels[2]):
                     if end_price > start_price:
-                        # Reversed logic: Set to -1 (sell) instead of 1 (buy)
-                        self.data.loc[self.data.index[i+1], 'signal'] = -1
-                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
-                        self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
-                    else:
-                        # Reversed logic: Set to 1 (buy) instead of -1 (sell)
                         self.data.loc[self.data.index[i+1], 'signal'] = 1
                         self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
                         self.data.loc[self.data.index[i+1], 'target'] = self.data['high_pool'].iloc[i+1]
+                    else:
+                        self.data.loc[self.data.index[i+1], 'signal'] = -1
+                        self.data.loc[self.data.index[i+1], 'entry_price'] = fib_levels[3]
+                        self.data.loc[self.data.index[i+1], 'target'] = self.data['low_pool'].iloc[i+1]
 
     def backtest(self, initial_capital=10000, risk_per_trade=0.01, max_open_trades=5, leverage=1, risk_reward_ratio=2):
         self.data['capital'] = initial_capital
@@ -178,29 +176,44 @@ class ForexTradingStrategy:
         # Plot buy signals
         buy_signals = self.data[self.data['signal'] == 1]
         fig.add_trace(go.Scatter(x=buy_signals.index, y=buy_signals['Close'], mode='markers', 
-                                 name='Buy Signal', marker=dict(color='green', size=10)), row=1, col=1)
+                                 name='Buy Signal', marker=dict(color='green', symbol='triangle-up', size=10)), row=1, col=1)
 
         # Plot sell signals
         sell_signals = self.data[self.data['signal'] == -1]
         fig.add_trace(go.Scatter(x=sell_signals.index, y=sell_signals['Close'], mode='markers', 
-                                 name='Sell Signal', marker=dict(color='red', size=10)), row=1, col=1)
+                                 name='Sell Signal', marker=dict(color='red', symbol='triangle-down', size=10)), row=1, col=1)
 
         # Plot equity curve
-        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Capital'), row=2, col=1)
+        fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve', line=dict(color='blue')), row=2, col=1)
 
-        fig.update_layout(height=600, title=f'{self.symbol} Strategy Backtest Results')
+        fig.update_layout(height=600, title_text=f"Strategy Backtest Results for {self.symbol}")
         st.plotly_chart(fig)
 
-# Example usage with Streamlit interface
-st.title("Forex Trading Strategy Backtest")
+        if selected_trade is not None:
+            st.write(f"Selected Trade Details:\n {selected_trade}")
 
-symbol = st.text_input("Symbol", "EURUSD=X")
-start_date = st.date_input("Start Date", datetime.now() - timedelta(days=30))
-end_date = st.date_input("End Date", datetime.now())
+# Streamlit interface
+st.title('Forex Trading Strategy Backtest')
 
-if st.button("Run Backtest"):
+symbol = st.text_input('Enter Forex Pair Symbol (e.g., EURUSD=X):', 'EURUSD=X')
+start_date = st.date_input('Start Date:', datetime.now() - timedelta(days=365))
+end_date = st.date_input('End Date:', datetime.now())
+initial_capital = st.number_input('Initial Capital:', min_value=1000, value=10000, step=1000)
+risk_per_trade = st.slider('Risk per Trade (%):', 0.01, 0.05, 0.01)
+max_open_trades = st.slider('Max Open Trades:', 1, 10, 5)
+leverage = st.slider('Leverage:', 1, 50, 10)
+risk_reward_ratio = st.slider('Risk-Reward Ratio:', 1.0, 3.0, 2.0)
+
+if st.button('Run Backtest'):
     strategy = ForexTradingStrategy(symbol, start_date, end_date)
-    metrics = strategy.run_strategy()
+    metrics = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
+    
     if metrics:
-        st.write("Metrics:", metrics)
+        st.write('Backtest Metrics:')
+        st.write(f"Total Return: {metrics['Total Return']*100:.2f}%")
+        st.write(f"Sharpe Ratio: {metrics['Sharpe Ratio']:.2f}")
+        st.write(f"Max Drawdown: {metrics['Max Drawdown']*100:.2f}%")
+        st.write(f"Final Capital: {metrics['Final Capital']:.2f}")
+        
         strategy.plot_results()
+
