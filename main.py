@@ -147,8 +147,8 @@ class ForexTradingStrategy:
             # Remove closed trades from open trades list
             self.open_trades = [trade for trade in self.open_trades if trade not in closed_trades]
             
-            # Ensure capital is updated even if no trades are closed
-            if i > 0 and self.data['capital'].iloc[i] == self.data['capital'].iloc[0]:
+            # Update capital for the current timestamp
+            if i > 0:
                 self.data.loc[self.data.index[i], 'capital'] = self.data['capital'].iloc[i-1]
 
         # Calculate daily returns
@@ -265,15 +265,17 @@ if st.sidebar.button('Run Backtest'):
                 trade_df = pd.DataFrame(strategy.trades)
                 if not trade_df.empty:
                     # Convert datetime to string for display
-                    trade_df['entry_time'] = trade_df['entry_time'].astype(str)
-                    trade_df['exit_time'] = trade_df['exit_time'].astype(str)
+                    trade_df['entry_time'] = pd.to_datetime(trade_df['entry_time'])
+                    trade_df['exit_time'] = pd.to_datetime(trade_df['exit_time'])
+                    trade_df['entry_time_str'] = trade_df['entry_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
+                    trade_df['exit_time_str'] = trade_df['exit_time'].dt.strftime('%Y-%m-%d %H:%M:%S')
                     # Round numeric columns
                     trade_df = trade_df.round({'entry_price': 5, 'exit_price': 5, 'pnl': 2})
-                    st.dataframe(trade_df)
+                    st.dataframe(trade_df[['entry_time_str', 'exit_time_str', 'position', 'entry_price', 'exit_price', 'pnl', 'exit_reason']])
 
                     st.header('Strategy Performance')
                     selected_trade_index = st.selectbox('Select a trade to highlight', range(len(trade_df)), 
-                                                        format_func=lambda x: f"Trade {x+1}")
+                                                        format_func=lambda x: f"Trade {x+1}: {trade_df.iloc[x]['entry_time_str']} to {trade_df.iloc[x]['exit_time_str']}")
                     selected_trade = trade_df.iloc[selected_trade_index]
 
                     fig = strategy.plot_results(selected_trade)
