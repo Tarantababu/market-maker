@@ -1,9 +1,29 @@
 import streamlit as st
-import yfinance as yf
+import requests
 import pandas as pd
 import numpy as np
 import plotly.graph_objects as go
 from datetime import datetime, timedelta
+
+# Alpha Vantage API key
+ALPHA_VANTAGE_API_KEY = '1260MG2P7VRFWMVA'  # Replace with your actual API key
+
+# Function to fetch data from Alpha Vantage
+def fetch_data(symbol, interval='1min', outputsize='full'):
+    from_currency, to_currency = symbol.split('/')
+    url = f'https://www.alphavantage.co/query?function=FX_INTRADAY&from_symbol={from_currency}&to_symbol={to_currency}&interval={interval}&outputsize={outputsize}&apikey={ALPHA_VANTAGE_API_KEY}'
+    r = requests.get(url)
+    data = r.json()
+
+    # Extract time series data
+    time_series_data = data.get(f'Time Series FX ({interval})', {})
+    
+    # Convert to DataFrame
+    df = pd.DataFrame.from_dict(time_series_data, orient='index')
+    df.index = pd.to_datetime(df.index)
+    df = df.astype(float)
+    df.columns = ['Open', 'High', 'Low', 'Close']
+    return df.sort_index()
 
 # Existing strategy functions (modified for real-time use)
 def resample_data(data, timeframe):
@@ -104,35 +124,38 @@ st.title('Forex Strategy Live Signals')
 
 # Sidebar for user input
 st.sidebar.header('Settings')
-symbol = st.sidebar.selectbox('Select Forex Pair', ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'AUDUSD=X', 'USDCAD=X', 'GBPAUD=X', 'EURNZD=X', 'GBPNZD=X', 'AUDCAD=X', 'AUDNZD=X', 'AUDCHF=X', 'NZDUSD=X', 'NZDCAD=X'])
+symbol = st.sidebar.selectbox('Select Forex Pair', ['EUR/USD', 'GBP/USD', 'USD/JPY', 'AUD/USD', 'USD/CAD', 'GBP/AUD', 'EUR/NZD', 'GBP/NZD', 'AUD/CAD', 'AUD/NZD', 'AUD/CHF', 'NZD/USD', 'NZD/CAD'])
 lookback_days = st.sidebar.slider('Lookback Period (days)', 1, 30, 7)
 
 # Function to fetch real-time data
 @st.cache_data(ttl=300)
-def fetch_data(symbol, lookback_days):
+def fetch_and_process_data(symbol, lookback_days):
+    data = fetch_data(symbol, interval='1min', outputsize='full')
     end_date = datetime.now()
     start_date = end_date - timedelta(days=lookback_days)
-    data = yf.download(symbol, start=start_date, end=end_date, interval='15m')
+    data = data[data.index >= start_date]
+    
+    # Apply strategy components
+    data['Bullish_1M'], data['Bearish_1M'] = identify_market_structure(data, '1min')
+    data['Bullish_15M'], data['Bearish_15M'] = identify_market_structure(data, '15min')
+    data['Bullish_1H'], data['Bearish_1H'] = identify_market_structure(data, '1H')
+    data['Bullish_4H'], data['Bearish_4H'] = identify_market_structure(data, '4H')
+    data['Bullish_D'], data['Bearish_D'] = identify_market_structure(data, 'D')
+
+    data = define_dealing_range(data)
+    data = identify_fair_value_gaps(data)
+    data = evaluate_pd_array(data)
+
+    # Get daily data for HTF open
+    daily_data = resample_data(data, 'D')
+
+    # Generate signals
+    data = generate_signals(data, daily_data)
+    
     return data
 
 # Fetch and process data
-data = fetch_data(symbol, lookback_days)
-
-# Apply strategy components
-data['Bullish_15M'], data['Bearish_15M'] = identify_market_structure(data, '15m')
-data['Bullish_1H'], data['Bearish_1H'] = identify_market_structure(data, '1H')
-data['Bullish_4H'], data['Bearish_4H'] = identify_market_structure(data, '4H')
-data['Bullish_D'], data['Bearish_D'] = identify_market_structure(data, 'D')
-
-data = define_dealing_range(data)
-data = identify_fair_value_gaps(data)
-data = evaluate_pd_array(data)
-
-# Get daily data for HTF open
-daily_data = resample_data(data, 'D')
-
-# Generate signals
-data = generate_signals(data, daily_data)
+data = fetch_and_process_data(symbol, lookback_days)
 
 # Create Plotly chart
 fig = go.Figure()
