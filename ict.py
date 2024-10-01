@@ -104,7 +104,7 @@ st.title('Forex Strategy Live Signals')
 
 # Sidebar for user input
 st.sidebar.header('Settings')
-symbol = st.sidebar.selectbox('Select Forex Pair', ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'AUDUSD=X', 'USDCAD=X'])
+symbol = st.sidebar.selectbox('Select Forex Pair', ['EURUSD=X', 'GBPUSD=X', 'USDJPY=X', 'AUDUSD=X', 'USDCAD=X', 'GBPAUD=X', 'EURNZD=X', 'GBPNZD=X', 'AUDCAD=X', 'AUDNZD=X', 'AUDCHF=X', 'NZDUSD=X', 'NZDCAD=X'])
 lookback_days = st.sidebar.slider('Lookback Period (days)', 1, 30, 7)
 
 # Function to fetch real-time data
