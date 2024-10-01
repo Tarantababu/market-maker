@@ -16,7 +16,7 @@ class ForexTradingStrategy:
         self.trades = []
         self.open_trades = []
 
-    def fetch_data(self, period="1d", interval="15m"):
+    def fetch_data(self, period="15m", interval="1m"):
         try:
             data = yf.download(self.symbol, period=period, interval=interval)
             if data.empty:
