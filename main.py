@@ -7,10 +7,13 @@ import plotly.graph_objects as go
 from plotly.subplots import make_subplots
 
 class ForexTradingStrategy:
-    def __init__(self, symbol, start_date, end_date):
+    def __init__(self, symbol, start_date, end_date, rsi_period, rsi_overbought, rsi_oversold):
         self.symbol = symbol
         self.start_date = start_date
         self.end_date = end_date
+        self.rsi_period = rsi_period
+        self.rsi_overbought = rsi_overbought
+        self.rsi_oversold = rsi_oversold
         self.data = self.fetch_data()
         self.trades = []
         self.open_trades = []
@@ -50,10 +53,10 @@ class ForexTradingStrategy:
         return 100 - (100 / (1 + rs))
 
     def apply_momentum_filter(self):
-        self.data['rsi'] = self.calculate_rsi(self.data['Close'], window=14)
+        self.data['rsi'] = self.calculate_rsi(self.data['Close'], window=self.rsi_period)
         self.data['trend'] = np.where(self.data['Close'] > self.data['Close'].rolling(window=20).mean(), 1, -1)
-        self.data['momentum_filter'] = np.where((self.data['rsi'] > 50) & (self.data['trend'] == 1), 'buy',
-                                                np.where((self.data['rsi'] < 50) & (self.data['trend'] == -1), 'sell', 'hold'))
+        self.data['momentum_filter'] = np.where((self.data['rsi'] < self.rsi_overbought) & (self.data['trend'] == 1), 'buy',
+                                                np.where((self.data['rsi'] > self.rsi_oversold) & (self.data['trend'] == -1), 'sell', 'hold'))
 
     def generate_signals(self):
         self.data['signal'] = 0
@@ -199,8 +202,8 @@ class ForexTradingStrategy:
 
         # Plot RSI
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['rsi'], name='RSI'), row=2, col=1)
-        fig.add_hline(y=70, line_dash="dash", line_color="red", row=2, col=1)
-        fig.add_hline(y=30, line_dash="dash", line_color="green", row=2, col=1)
+        fig.add_hline(y=self.rsi_overbought, line_dash="dash", line_color="red", row=2, col=1)
+        fig.add_hline(y=self.rsi_oversold, line_dash="dash", line_color="green", row=2, col=1)
 
         # Plot equity curve
         fig.add_trace(go.Scatter(x=self.data.index, y=self.data['capital'], name='Equity Curve'), row=3, col=1)
@@ -241,10 +244,16 @@ max_open_trades = st.sidebar.slider('Max Open Trades', 1, 10, 5)
 leverage = st.sidebar.slider('Leverage', 1, 100, 1)
 risk_reward_ratio = st.sidebar.slider('Risk-Reward Ratio', 1.0, 5.0, 2.0, 0.1)
 
+# New RSI inputs
+st.sidebar.header('RSI Parameters')
+rsi_period = st.sidebar.slider('RSI Period', 5, 30, 14)
+rsi_overbought = st.sidebar.slider('RSI Overbought Level', 50, 90, 70)
+rsi_oversold = st.sidebar.slider('RSI Oversold Level', 10, 50, 30)
+
 if st.sidebar.button('Run Backtest'):
     with st.spinner('Running backtest...'):
         try:
-            strategy = ForexTradingStrategy(symbol, start_date, end_date)
+            strategy = ForexTradingStrategy(symbol, start_date, end_date, rsi_period, rsi_overbought, rsi_oversold)
             results = strategy.run_strategy(initial_capital, risk_per_trade, max_open_trades, leverage, risk_reward_ratio)
             
             if results is not None:
@@ -298,6 +307,10 @@ if st.sidebar.button('Run Backtest'):
                     largest_loss = trade_df['pnl'].min()
                     st.metric("Largest Win", f"${largest_win:.2f}")
                     st.metric("Largest Loss", f"${largest_loss:.2f}")
+
+                    # Total Sum of Profit
+                    total_sum_profit = trade_df['pnl'].sum()
+                    st.metric("Total Sum of Profit", f"${total_sum_profit:.2f}")
 
                 else:
                     st.warning("No trades were executed during the backtest period.")
